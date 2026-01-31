@@ -2,12 +2,15 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="무한매수Pro">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2534/2534348.png"> <title>무한매수 Pro Dashboard</title>
+    
+    <link rel="apple-touch-icon" href="https://r.jina.ai/i/608246f906f34e3f886f3434686f3434"> 
+
+    <title>무한매수 Pro Dashboard</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -20,92 +23,77 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
         body { 
             font-family: 'Inter', sans-serif; 
-            -webkit-tap-highlight-color: transparent; /* 모바일 터치 하이라이트 제거 */
-            user-select: none; /* 텍스트 선택 방지 (앱 느낌) */
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            background-color: #f8fafc;
         }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        /* 아이폰 노치 및 하단 바 영역 대응 */
+        .safe-top { padding-top: env(safe-area-inset-top); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
         
-        /* 아이폰 노치(Safe Area) 대응 */
-        header {
-            padding-top: env(safe-area-inset-top);
-        }
+        .animate-pulse-soft { animation: pulse 3s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useRef, useCallback } = React;
-        const { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip: RechartsTooltip, Cell } = Recharts;
+        const { useState, useEffect, useMemo, useCallback } = React;
+        const { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip: RechartsTooltip } = Recharts;
 
-        // 상수 설정
-        const BUDGET_PER_UNIT = 6935.48;
         const STORAGE_KEYS = {
             URL: 'infinite_buying_sheet_url',
             DATA: 'infinite_buying_last_data',
             API: 'infinite_buying_api_key'
         };
 
-        const INITIAL_CSV = `타임스탬프,날짜,종목,구분,진행회차(n/40),체결 단가 ($),수량,실현 손익 ($)
-2026. 1. 31,2026. 1. 31,샘플 종목,매수,1/40,50.00,10,0`;
-
-        // 아이콘 컴포넌트
         const Icon = ({ name, size = 18, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
         };
 
-        // 데이터 파싱 로직
-        const parseCSV = (text) => {
-            if (!text || text.includes('<!DOCTYPE html>')) return { rows: [], headers: [], error: "데이터 형식이 올바르지 않습니다." };
-            const lines = text.trim().split(/\r?\n/);
-            const headers = lines[0].split(',').map(h => h.trim());
-            const rows = lines.slice(1).map(line => {
-                const values = line.split(',');
-                return headers.reduce((obj, h, i) => ({ ...obj, [h]: values[i]?.trim() }), {});
-            });
-            return { rows, headers };
-        };
-
         function App() {
-            const [activeTab, setActiveTab] = useState('dashboard');
-            const [csvData, setCsvData] = useState(() => localStorage.getItem(STORAGE_KEYS.DATA) || INITIAL_CSV);
-            const [sheetUrl, setSheetUrl] = useState(() => localStorage.getItem(STORAGE_KEYS.URL) || '');
-            const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem(STORAGE_KEYS.API) || '');
+            const [csvData, setCsvData] = useState(() => localStorage.getItem(STORAGE_KEYS.DATA) || "");
+            const [sheetUrl, setSheetUrl] = useState(() => localStorage.getItem(STORAGE_KEYS.URL) || "");
+            const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem(STORAGE_KEYS.API) || "");
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [loading, setLoading] = useState(false);
-            const [aiAdvice, setAiAdvice] = useState('데이터를 분석 중입니다...');
 
-            // 데이터 처리
+            // 데이터 분석 로직
             const processed = useMemo(() => {
-                const { rows, error } = parseCSV(csvData);
-                if (error) return { stocks: [], totalProfit: 0, error };
+                if (!csvData) return { stocks: [], totalProfit: 0 };
+                const lines = csvData.trim().split(/\r?\n/);
+                if (lines.length < 2) return { stocks: [], totalProfit: 0 };
+                
+                const headers = lines[0].split(',').map(h => h.trim());
+                const rows = lines.slice(1).map(line => {
+                    const values = line.split(',');
+                    return headers.reduce((obj, h, i) => ({ ...obj, [h]: values[i]?.trim() }), {});
+                });
 
                 const groups = {};
                 rows.forEach(row => {
                     const name = row['종목'];
                     if (!name) return;
-                    if (!groups[name]) groups[name] = { name, qty: 0, invested: 0, profit: 0, progress: '0/40' };
+                    if (!groups[name]) groups[name] = { name, qty: 0, profit: 0, progress: '0/40' };
                     
-                    const price = parseFloat(row['체결 단가 ($)']) || 0;
                     const qty = parseFloat(row['수량']) || 0;
                     const profit = parseFloat(row['실현 손익 ($)']) || 0;
 
                     if (row['구분']?.includes('매수')) {
-                        groups[name].invested += price * qty;
                         groups[name].qty += qty;
                         groups[name].progress = row['진행회차(n/40)'];
                     } else if (row['구분']?.includes('매도')) {
                         groups[name].profit += profit;
-                        groups[name].qty = 0; // 전량 매도 가정
+                        groups[name].qty = 0;
                     }
                 });
                 return { stocks: Object.values(groups), totalProfit: Object.values(groups).reduce((a, b) => a + b.profit, 0) };
             }, [csvData]);
 
-            const fetchData = async () => {
-                if (!sheetUrl) return;
+            const handleSync = async () => {
+                if (!sheetUrl) return alert("시트 주소를 입력해주세요.");
                 setLoading(true);
                 try {
                     const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(sheetUrl)}`);
@@ -113,88 +101,101 @@
                     setCsvData(text);
                     localStorage.setItem(STORAGE_KEYS.DATA, text);
                     localStorage.setItem(STORAGE_KEYS.URL, sheetUrl);
-                    alert("업데이트 완료!");
-                } catch (e) { alert("데이터 로드 실패"); }
+                    alert("동기화 성공!");
+                } catch (e) { alert("연동 실패: " + e.message); }
                 finally { setLoading(false); }
             };
 
+            const saveApiKey = () => {
+                localStorage.setItem(STORAGE_KEYS.API, userApiKey);
+                alert("API 키 저장 완료");
+            };
+
             return (
-                <div className="min-h-screen flex flex-col">
-                    {/* 상단 헤더 (iOS 세이프 영역 대응) */}
-                    <header className="bg-white/80 backdrop-blur-md border-b sticky top-0 z-50 px-6 py-4 flex justify-between items-center">
-                        <div>
-                            <h1 className="text-xl font-black text-slate-800">무한매수 <span className="text-indigo-600">Pro</span></h1>
-                        </div>
-                        <button onClick={() => setIsModalOpen(true)} className="p-2 bg-slate-100 rounded-full">
-                            <Icon name="settings" size={20} />
+                <div className="min-h-screen flex flex-col pb-safe-bottom">
+                    <header className="safe-top bg-white/90 backdrop-blur-md border-b sticky top-0 z-50 px-6 py-4 flex justify-between items-center shadow-sm">
+                        <h1 className="text-xl font-black tracking-tight text-slate-800">무한매수 <span className="text-indigo-600">Pro</span></h1>
+                        <button onClick={() => setIsModalOpen(true)} className="p-2.5 bg-slate-100 rounded-2xl active:scale-95 transition-transform">
+                            <Icon name="settings" size={20} className="text-slate-600" />
                         </button>
                     </header>
 
-                    {/* 메인 콘텐츠 */}
-                    <main className="flex-1 p-6 space-y-6 pb-24">
-                        {/* 요약 카드 */}
+                    <main className="flex-1 p-6 space-y-6">
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-indigo-600 p-5 rounded-3xl text-white shadow-lg shadow-indigo-200">
-                                <p className="text-[10px] opacity-80 font-bold uppercase tracking-wider">누적 수익</p>
-                                <p className="text-2xl font-black mt-1">${processed.totalProfit.toLocaleString()}</p>
+                            <div className="bg-gradient-to-br from-indigo-600 to-violet-700 p-6 rounded-[2.5rem] text-white shadow-xl shadow-indigo-200">
+                                <p className="text-[10px] font-bold opacity-70 uppercase tracking-widest">누적 실현 수익</p>
+                                <p className="text-2xl font-black mt-2">${processed.totalProfit.toLocaleString()}</p>
                             </div>
-                            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm">
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">활성 종목</p>
-                                <p className="text-2xl font-black mt-1 text-slate-800">{processed.stocks.filter(s => s.qty > 0).length}</p>
+                            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col justify-center">
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">운영 중인 호기</p>
+                                <p className="text-2xl font-black mt-2 text-slate-800">{processed.stocks.filter(s => s.qty > 0).length}개</p>
                             </div>
                         </div>
 
-                        {/* AI 코치 섹션 */}
-                        <section className="bg-slate-900 rounded-[2rem] p-6 text-white overflow-hidden relative">
+                        <section className="bg-slate-900 rounded-[2.5rem] p-7 text-white shadow-2xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-4 opacity-10"><Icon name="cpu" size={100} /></div>
                             <div className="relative z-10">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <Icon name="sparkles" size={16} className="text-yellow-400" />
-                                    <span className="text-[10px] font-bold tracking-widest text-indigo-300">AI STRATEGY</span>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse"></div>
+                                    <span className="text-[10px] font-black tracking-[0.2em] text-indigo-300 uppercase">AI Strategy Report</span>
                                 </div>
-                                <p className="text-sm leading-relaxed text-slate-300">
-                                    {userApiKey ? "현재 시장 상황과 매수 회차를 분석하여 최적의 LOC 매수가를 도출하고 있습니다." : "설정에서 API 키를 입력하면 AI 조언을 볼 수 있습니다."}
+                                <p className="text-sm leading-relaxed text-slate-300 font-medium">
+                                    {userApiKey ? "현재 매수 회차와 시장 변동성을 바탕으로 내일의 LOC 매수가를 산출하고 있습니다." : "API 키를 설정하면 AI의 정밀 진단을 받을 수 있습니다."}
                                 </p>
                             </div>
                         </section>
 
-                        {/* 종목 리스트 */}
                         <div className="space-y-4">
-                            <h3 className="font-bold text-slate-800 ml-1">내 보유 종목</h3>
-                            {processed.stocks.map(stock => (
-                                <div key={stock.name} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <h4 className="font-black text-lg">{stock.name}</h4>
-                                        <span className="text-[10px] bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full font-bold">진행중</span>
-                                    </div>
-                                    <div className="flex justify-between items-end">
-                                        <div>
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase">보유 수량</p>
-                                            <p className="text-xl font-black">{stock.qty}주</p>
+                            <h3 className="font-black text-slate-800 ml-2 text-sm uppercase tracking-widest">Live Portfolio</h3>
+                            {processed.stocks.length === 0 ? (
+                                <div className="text-center py-12 bg-white rounded-[2.5rem] border border-dashed border-slate-300 text-slate-400 text-sm">기록을 동기화해주세요.</div>
+                            ) : (
+                                processed.stocks.map(stock => (
+                                    <div key={stock.name} className="bg-white p-7 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                                        <div className="flex justify-between items-start mb-6">
+                                            <div>
+                                                <h4 className="font-black text-slate-800 text-lg">{stock.name}</h4>
+                                                <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-tighter">Status: Active</p>
+                                            </div>
+                                            <div className="bg-indigo-50 px-4 py-1.5 rounded-full"><span className="text-xs font-black text-indigo-600">{stock.progress}</span></div>
                                         </div>
-                                        <div className="text-right">
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase">진행도</p>
-                                            <p className="text-xl font-black text-indigo-600">{stock.progress}</p>
+                                        <div className="flex justify-between items-end">
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] text-slate-400 font-black uppercase">보유량</p>
+                                                <p className="text-2xl font-black text-slate-800">{stock.qty.toLocaleString()}<span className="text-xs ml-1 text-slate-400 font-medium">주</span></p>
+                                            </div>
+                                            <div className="text-right space-y-1">
+                                                <p className="text-[10px] text-slate-400 font-black uppercase">수익</p>
+                                                <p className="text-2xl font-black text-emerald-500">${stock.profit.toLocaleString()}</p>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))
+                            )}
                         </div>
                     </main>
 
-                    {/* 설정 모달 */}
                     {isModalOpen && (
-                        <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-end">
-                            <div className="bg-white w-full rounded-t-[3rem] p-8 pb-12 animate-in slide-in-from-bottom duration-300">
-                                <div className="flex justify-between items-center mb-8">
-                                    <h2 className="text-xl font-black">설정</h2>
-                                    <button onClick={() => setIsModalOpen(false)} className="p-2 bg-slate-100 rounded-full"><Icon name="x" /></button>
+                        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-end animate-in fade-in duration-300">
+                            <div className="bg-white w-full rounded-t-[3.5rem] p-9 pb-16 shadow-2xl animate-in slide-in-from-bottom-10 duration-500">
+                                <div className="flex justify-between items-center mb-10">
+                                    <h2 className="text-2xl font-black text-slate-800">App Settings</h2>
+                                    <button onClick={() => setIsModalOpen(false)} className="p-3 bg-slate-50 rounded-full"><Icon name="x" /></button>
                                 </div>
-                                <div className="space-y-6">
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase ml-1">구글 시트 CSV 주소</label>
-                                        <input type="text" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} className="w-full mt-2 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm" placeholder="https://docs.google.com/..." />
+                                <div className="space-y-8">
+                                    <div className="space-y-3">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Google Sheet CSV URL</label>
+                                        <input type="text" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-[1.5rem] text-sm font-medium outline-none focus:ring-2 ring-indigo-500/20 transition-all" placeholder="시트 웹 게시 주소(CSV) 입력" />
+                                        <button onClick={handleSync} disabled={loading} className="w-full bg-slate-800 text-white py-5 rounded-[1.5rem] font-black shadow-lg active:scale-[0.98] transition-all disabled:opacity-50">
+                                            {loading ? "데이터 불러오는 중..." : "데이터 실시간 동기화"}
+                                        </button>
                                     </div>
-                                    <button onClick={fetchData} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black shadow-lg">데이터 동기화</button>
+                                    <div className="h-px bg-slate-100 w-full"></div>
+                                    <div className="space-y-3">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Gemini AI API Key</label>
+                                        <input type="password" value={userApiKey} onChange={e => setUserApiKey(e.target.value)} className="w-full p-5 bg-slate-50 border border-slate-100 rounded-[1.5rem] text-sm font-medium outline-none focus:ring-2 ring-indigo-500/20 transition-all" placeholder="AI Studio 키 입력" />
+                                        <button onClick={saveApiKey} className="w-full bg-indigo-600 text-white py-5 rounded-[1.5rem] font-black shadow-lg active:scale-[0.98] transition-all">AI 코치 활성화</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
